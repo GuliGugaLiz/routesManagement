@@ -8,7 +8,7 @@
                         导入路线
                     </i>
                 </el-button>
-                <el-button class="saveRoute" :disabled="disabled" type="text" v-on:click="download">
+                <el-button class="saveRoute" :disabled="disabled" type="text" >
                     <i class="el-icon-fa-save">
                         清除所有
                     </i>
@@ -30,7 +30,7 @@
                             <template scope="scope">
                                 <i class="el-icon-fa-train">
                                 </i>
-                                <span @click="showRoute(scope.$index)" style="margin-left: 10px">
+                                <span @click="showTrainRoute(scope.$index)" style="margin-left: 10px">
                                     {{scope.row}}
                                 </span>
                             </template>
@@ -51,24 +51,20 @@
                         </i>
                         地铁
                     </span>
-                    <el-input icon="search" placeholder="搜索" style="width: 260px;" v-model="nameBox">
+                    <el-input icon="search" placeholder="搜索" style="width: 260px;" v-model="s_nameBox">
                     </el-input>
                     <el-table :data="subwayNameData" style="width: 260px;text-align:left">
                         <el-table-column type="expand">
-                            <template scope="scope">
-                                <span v-for="(val,key) in (scope.row.lines)">
-                                    <el-form class="demo-table-expand" inline="" label-position="left">
-                                        <el-form-item>
+                            <template scope="scope" >
+                            <div v-for="(val,key) in (scope.row.lines)" :id=key >
                                             <i class="el-icon-fa-subway">
                                             </i>
-                                            <span @click="showRoute(scope.$index)" le="margin-left: 10px">
+                                            <span @click="showSubwayRoute(scope.$index,key)">
                                                 {{scope.row.lines[key]}}
                                             </span>
-                                            <i class="el-icon-delete" @click="handleDeleteSubway(scope.$index, scope.row)">
+                                            <i class="el-icon-delete" @click="handleDeleteSubway(scope.$index, key)" >
                                                 </i>
-                                        </el-form-item>
-                                    </el-form>
-                                </span>
+                                            </div>
                             </template>
                         </el-table-column>
                         <el-table-column>
@@ -83,12 +79,15 @@
                 </el-tab-pane>
             </el-tabs>
         </div>
+
         <div id="leaflet-map">
+
         </div>
+
     </div>
 </template>
 <script>
-    import Leaflet from 'leaflet'
+import Leaflet from 'leaflet'
 import axios from 'axios'
 import "../../node_modules/leaflet/dist/leaflet.css"
 import 'leaflet-draw'
@@ -118,20 +117,25 @@ Leaflet.Icon.Default.mergeOptions({
         },
 
         nameBox:'',
+        s_nameBox:'',
         show:true,
-        disabled:false,
+        disabled:true,
         text:'',
         xmlDoc:'',
         fts:[],
         trainGeojsons:[],
-        subwayGeojsons:[],
+        subwayGeojsons:[],//每一条地铁路线的信息
         createdGeojsons:[],
         geojsons:[],
         trainName:[],
         subwayNameData:[],
+        cityName:[],
         trainFeatureLayer:[],
         subwayFeatureLayer:[],
         editableLayers:null,
+        subwayGeojson:[],//一个城市的路线信息
+        dialogFormVisible:'',
+        pathLayer:'',
       }
     },
     mounted:function(){
@@ -159,7 +163,7 @@ Leaflet.Icon.Default.mergeOptions({
             var options = {
                 position:'topright',
                 draw:{
-                    marker:false
+                    //marker:false
                 },
                 edit:{
                     featureGroup:editableLayers,
@@ -175,22 +179,61 @@ Leaflet.Icon.Default.mergeOptions({
                 var content = JSON.stringify(e.layer.toGeoJSON());
                 console.log(content);
                 editableLayers.addLayer(layer);
+                //右键保存
+                var popup_content = 'Testing the Link: <a href="#" id="speciallink">TestLink</a>';
+                layer.on('contextmenu',function(){
+                    var cont = document.getElementById(speciallink);
+                });
+
             });
             //编辑图层
             this.map.on('draw:edited',function(e){
                 var layers = e.layers;
                 var content = null;
-                layers.eachLayer(function(e){
+                layers.eachLayer(function(layer){
                     content = JSON.stringify(layer.toGeoJSON());
-                });
                 var fts_content = JSON.parse(content);
                 var editGeojson = {
                     "type":"FeatureCollection",
                     "features":[fts_content]
-                };                    
+                };
+                //如果是地铁
+                var editName = layer.feature.properties.name;
+                for(var i=0;i<vm.subwayGeojson.length;i++){
+                    for(var j=0;j<vm.subwayGeojson[i].length;j++){
+                        for(var k=0;k<vm.subwayGeojson[i][j].features.length;k++){
+                            if(vm.subwayGeojson[i][j].features[k].properties.name == editName){
+                                //vm.subwayGeojson[i][j].features[k] = {fts_content};
+                                vm.subwayGeojson[i][j].features[k] = fts_content;
+                                console.log(vm.subwayGeojson[i][j].features[k]);
+                                break;
+                            }
+                        }
+                    }
+                };
+
+                //如果是高铁
+                var routeName = layer.feature.properties.name;
+                for(var r=0;r<vm.trainName.length;r++){
+                                if(vm.trainName[r] == routeName){
+                                    vm.trainGeojsons[r]=editGeojson;
+                                    break;
+                                }
+                            };
+               });
             });
             this.map.on('draw:deleted',function(e){
-                var layer = e.layer;
+                var layers = e.layers;
+                    layers.eachLayer(function(layer){
+                        var routeName = layer.feature.properties.name;
+                        for(var r=0;r<vm.trainName.length;r++){
+                            if(vm.trainName[r] == routeName){
+                                vm.trainName.splice(r,1);
+                                vm.trainGeojsons.splice(r,1);
+                                break;
+                            }
+                        }
+                    })
             });
             this.editableLayers = editableLayers;
         },
@@ -246,7 +289,7 @@ Leaflet.Icon.Default.mergeOptions({
             }catch(e){
                 try{
                     var parser = new DOMParser();
-                    xmlDoc = parser.parseFromString(text, "text/xml");                  
+                    xmlDoc = parser.parseFromString(text, "text/xml");
                 }catch(e){
                     alert(e.message);
                 }
@@ -264,7 +307,7 @@ Leaflet.Icon.Default.mergeOptions({
             //按地铁线路循环取数据
             for(var z=0;z<xmlDoc.getElementsByTagName("MetroLine").length;z++){
              var feature = [];
-             var coordinates = []; 
+             var coordinates = [];
              //取出每个站点途径的坐标点
             for(var j=3;j<xmlDoc.getElementsByTagName("MetroLine")[z].childNodes.length;j+=4){
              var subitems = xmlDoc.getElementsByTagName("MetroLine")[z].childNodes[j];
@@ -311,6 +354,8 @@ Leaflet.Icon.Default.mergeOptions({
    };
 
                 var lines = [];
+                var subwayGeojson = [];
+                var subFeatureLayer = [];
                 for(var f=0;f<this.fts.length;f++){
                 var subwayData =  {
                     "type":"FeatureCollection",
@@ -319,25 +364,35 @@ Leaflet.Icon.Default.mergeOptions({
                         "cityName":city["0"].attributes["0"].value
                     },
               };
+             vm.subwayGeojsons.push(subwayData);
+             subwayGeojson.push(subwayData);
 
-              vm.subwayGeojsons.push(subwayData);
+             var subLayer = L.geoJSON(subwayData,{
+                onEachFeature:function(feature,layer){
+                layer.bindPopup(feature.properties.name);
+                vm.editableLayers.addLayer(layer);
+                }
+                //onEachFeature:vm.onEachFeature
+             });
 
-             var subwayFeatureLayer = L.geoJSON(subwayData,{
-                onEachFeature:vm.onEachFeature
-            });
-
-           vm.subwayFeatureLayer.push(subwayFeatureLayer);
-           vm.map.addLayer(subwayFeatureLayer);
+             subFeatureLayer.push(subLayer);
+             vm.map.addLayer(subLayer);
 
             lines.push(subwayData.features["0"].properties.name);
-
             };
+
+             vm.subwayFeatureLayer.push(subFeatureLayer);
+
+            //按城市获取到地铁信息
+            vm.subwayGeojson.push(subwayGeojson);
+
+            //获取到相关的城市名字、路线名字
             var subwayNameData = {
                 city:subwayData.properties.cityName,
                 lines:lines
             };
             vm.subwayNameData.push(subwayNameData);
-           //console.log(vm.subwayGeojsons);
+            vm.cityName.push(subwayData.properties.cityName);
 
         },
         kml2geojson:function(text){
@@ -382,7 +437,11 @@ Leaflet.Icon.Default.mergeOptions({
           vm.trainGeojsons.push(trainData);
 
          var trainFeatureLayer = L.geoJSON(trainData,{
-            onEachFeature:vm.onEachFeature
+            onEachFeature:function(feature,layer){
+                layer.bindPopup(feature.properties.name);
+                vm.editableLayers.addLayer(layer);
+                }
+            //onEachFeature:vm.onEachFeature
           });
 
          vm.trainFeatureLayer.push(trainFeatureLayer);
@@ -397,22 +456,47 @@ Leaflet.Icon.Default.mergeOptions({
             //var geojsonData = eval("("+txt+")");
             var geojsonData = JSON.parse(txt);
             vm.geojsons.push(geojsonData);
-           // console.log(geojsonData);
-              L.geoJSON(geojsonData,{
-                   onEachFeature:function(feature,layer){
-                    //console.log(feature.properties.name);
-                   /* console.log(layer);
-                    if(feature.length = 1){
-                        vm.trainName.push (feature.properties.name);
-                    }else{
 
-                        console.log(3333)
-
-                    }*/
-                        //this.trainName.push (feature.properties.name);
-                        vm.editableLayers.addLayer(layer);
+           if(geojsonData.length >0 ){
+            var s_Cityname = geojsonData["0"].properties.cityName;
+            var linesName =[];
+            var s_layer =[];
+            for(var i=0;i<geojsonData.length;i++){
+                linesName.push(geojsonData[i].features["0"].properties.name);
+                console.log(geojsonData[i]);
+                var subwayLayer = L.geoJSON(geojsonData[i],{
+                    onEachFeature:function(feature,layer){
+                    layer.bindPopup(feature.properties.name);
+                    vm.editableLayers.addLayer(layer);
+                }
+            });
+                vm.map.addLayer(subwayLayer);
+                s_layer.push(subwayLayer);
             }
-                 }).addTo(this.map);
+            var s_Name = {
+                city:s_Cityname,
+                lines:linesName
+            };
+            vm.subwayNameData.push(s_Name);
+            vm.cityName.push(s_Cityname);
+
+            vm.subwayGeojson.push(geojsonData);
+
+            vm.subwayFeatureLayer.push(s_layer);
+
+           }else{
+            var t_name = geojsonData.features["0"].properties.name;
+            vm.trainName.push(t_name);
+            vm.trainGeojsons.push(geojsonData);
+            var trainLayer = L.geoJSON(geojsonData,{
+                   onEachFeature:function(feature,layer){
+                layer.bindPopup(feature.properties.name);
+                vm.editableLayers.addLayer(layer);
+                }
+                 });
+            vm.trainFeatureLayer.push(trainLayer);
+            vm.map.addLayer(trainLayer);
+           }
         },
 
         initPanel:function(){
@@ -440,17 +524,16 @@ Leaflet.Icon.Default.mergeOptions({
             this.trainName.splice(index,1);
             this.map.removeLayer(this.trainFeatureLayer[index]);
             this.trainFeatureLayer.splice(index,1);
-            this.$message({
-              message:'操作成功',
-              type:'success'
-            });
           },
         handleDeleteSubway:function(index,row){
+            (this.subwayNameData[index].lines).splice(row,1);
+            this.map.removeLayer(this.subwayFeatureLayer[index][row]);
+            this.subwayFeatureLayer[index].splice(row,1);
         },
         downloadTrain: function(index,row) {
             var id = index;
             var obj = document.getElementById(id);
-            console.log(this.trainGeojsons[index]);
+            //console.log(this.trainGeojsons[index]);
             var str = JSON.stringify(this.trainGeojsons[index]);
             var fileName = this.trainName[index];
             str = encodeURIComponent(str);
@@ -460,29 +543,60 @@ Leaflet.Icon.Default.mergeOptions({
         downloadSubway:function(index,row){
             var id = index;
             var obj = document.getElementById(id);
-            var str = JSON.stringify(this.subwayGeojsons[index]);
+            var str = JSON.stringify(this.subwayGeojson[index]);
             var fileName = this.cityName[index];
             str = encodeURIComponent(str);
             obj.href = "data:text/geojson;charset=utf-8,\ufeff" + str;
             obj.download = fileName+".geojson";
         },
-        showRoute:function(index){
+        saveFileName:function(){
+            this.$prompt("请输入文件名导出文件",'提示',{
+                confirmButtonText:'导出',
+                cancelButtonText:'取消',
+
+            }).then(({value}) =>{
+                this.downloadNewLayer(value)
+
+            }).catch(() => {
+                this.$message({
+                    type:'info',
+                    message:'取消导出'
+                });
+            });
+        },
+        downloadNewLayer:function(value){
+            alert(235345345);
+        },
+        showTrainRoute:function(index){
             var routeName = this.trainName[index];
             var path = '';
-
             for(var r=0;r<this.trainName.length;r++){
                 this.trainName[r] == routeName;
                 path = this.trainGeojsons[r];
-
             }
-
-          var pathLayer =   L.geoJson(path)
+           var pathLayer =   L.geoJson(path)
                 .bindPopup(function (layer) {
                        return layer.feature.properties.name;})
                 .addTo(this.map);
                 this.map.fitBounds(pathLayer.getBounds());
-      },
-              showPanel:function(){
+        },
+        showSubwayRoute:function(index,key){
+            var routeCityName = this.subwayGeojson[index][key].properties.cityName;
+            var path = '';
+            for(var r = 0;r<this.subwayNameData.length;r++){
+                if(this.subwayNameData[r].city == routeCityName){
+                    path = this.subwayGeojson[r][key];
+                    break;
+                }
+            }
+            var pathLayer = L.geoJSON(path)
+            .bindPopup(function(layer){
+                return layer.feature.properties.name;
+            }).addTo(this.map);
+            this.map.fitBounds(pathLayer.getBounds(),pathLayer.setStyle({color:'red',weight:5}));
+            this.pathLayer = pathLayer;
+        },
+        showPanel:function(){
             this.show = !this.show;
         },
     },
@@ -492,17 +606,24 @@ Leaflet.Icon.Default.mergeOptions({
             return that.trainName.filter(function (name) {
               return name.toLowerCase().indexOf(that.nameBox.toLowerCase()) !== -1;
                })
+       },
+       s_newNames:function(){
+        var that = this;
+        return that.subwayNameData.filter(function (name){
+            return name.toLowerCase().indexOf(that.s_nameBox.toLowerCase()) !== -1;
+        })
        }
      },
      watch:{
-        names:function(val,oldVal){
-           if(val == null){
-            this.show = false;
-            this.disabled = true;
-           }else{
-            this.show = true;
-            this.disabled = false;
-           }
+        trainName:function(val,oldVal){
+            if(val != null){
+                this.disabled = false;
+            }
+        },
+        subwayNameData:function(val,oldVal){
+            if(val != null){
+                this.disabled = false;
+            }
         },
         show:function(val,oldVal){
           if(val == true){
@@ -519,9 +640,13 @@ Leaflet.Icon.Default.mergeOptions({
                     document.getElementById("leaflet-map").style.width="100%"
           }
         },
-        edit:function(val,oldVal){
-            console.log(val);
-        },
+        pathLayer:function(val,oldVal){
+            if(val != oldVal){
+                oldVal.setStyle({color:''});
+            }
+
+        }
+
     }
   }
 </script>
